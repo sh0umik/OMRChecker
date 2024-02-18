@@ -235,11 +235,14 @@ class ImageInstanceOps:
         # Translucent
         cv2.addWeighted(final_marked, alpha, transp_layer, 1 - alpha, 0, final_marked)
         # Box types
-        if config.outputs.show_image_level >= 5:
+        if config.outputs.show_image_level >= 6:
             # plt.draw()
             f, axes = plt.subplots(len(all_c_box_vals), sharey=True)
-            f.canvas.manager.set_window_title(name)
+            f.canvas.manager.set_window_title(
+                f"Bubble Intensity by question type for {name}"
+            )
             ctr = 0
+            # TODO: generalize
             type_name = {
                 "int": "Integer",
                 "mcq": "MCQ",
