@@ -11,7 +11,8 @@ from src.logger import console, logger
 from src.schemas.constants import (
     BONUS_SECTION_PREFIX,
     DEFAULT_SECTION_KEY,
-    MARKING_VERDICT_TYPES,
+    VERDICTS_IN_ORDER,
+    Verdict,
 )
 from src.utils.parsing import (
     get_concatenated_response,
@@ -72,21 +73,27 @@ class AnswerMatcher:
         elif answer_type == "multiple-correct":
             # no local overrides
             for allowed_answer in parsed_answer:
-                self.marking[f"correct-{allowed_answer}"] = self.marking["correct"]
+                self.marking[f"{Verdict.CORRECT}-{allowed_answer}"] = self.marking[
+                    Verdict.CORRECT
+                ]
         elif answer_type == "multiple-correct-weighted":
             custom_marking = list(map(parse_float_or_fraction, parsed_answer[1]))
-            verdict_types_length = min(len(MARKING_VERDICT_TYPES), len(custom_marking))
+            verdict_types_length = min(len(VERDICTS_IN_ORDER), len(custom_marking))
             # override the given marking
             for i in range(verdict_types_length):
-                verdict_type = MARKING_VERDICT_TYPES[i]
+                verdict_type = VERDICTS_IN_ORDER[i]
                 self.marking[verdict_type] = custom_marking[i]
 
             if type(parsed_answer[0] == str):
                 allowed_answer = parsed_answer[0]
-                self.marking[f"correct-{allowed_answer}"] = self.marking["correct"]
+                self.marking[f"{Verdict.CORRECT}-{allowed_answer}"] = self.marking[
+                    Verdict.CORRECT
+                ]
             else:
                 for allowed_answer in parsed_answer[0]:
-                    self.marking[f"correct-{allowed_answer}"] = self.marking["correct"]
+                    self.marking[f"{Verdict.CORRECT}-{allowed_answer}"] = self.marking[
+                        Verdict.CORRECT
+                    ]
 
     def get_marking_scheme(self):
         return self.marking_scheme
@@ -114,11 +121,11 @@ class AnswerMatcher:
     def get_standard_verdict(self, marked_answer):
         parsed_answer = self.parsed_answer
         if marked_answer == self.empty_val:
-            return "unmarked"
+            return Verdict.UNMARKED
         elif marked_answer == parsed_answer:
-            return "correct"
+            return Verdict.CORRECT
         else:
-            return "incorrect"
+            return Verdict.INCORRECT
 
     def get_multi_weighted_verdict(self, marked_answer):
         return self.get_multiple_correct_verdict(marked_answer)
@@ -126,11 +133,11 @@ class AnswerMatcher:
     def get_multiple_correct_verdict(self, marked_answer):
         parsed_answer = self.parsed_answer
         if marked_answer == self.empty_val:
-            return "unmarked"
+            return Verdict.UNMARKED
         elif marked_answer in parsed_answer:
-            return f"correct-{marked_answer}"
+            return f"{Verdict.CORRECT}-{marked_answer}"
         else:
-            return "incorrect"
+            return Verdict.INCORRECT
 
     def __str__(self):
         answer_type, parsed_answer = self.answer_type, self.parsed_answer
@@ -158,11 +165,11 @@ class SectionMarkingScheme:
 
     def parse_scheme_marking(self, marking):
         parsed_marking = {}
-        for verdict_type in MARKING_VERDICT_TYPES:
+        for verdict_type in VERDICTS_IN_ORDER:
             verdict_marking = parse_float_or_fraction(marking[verdict_type])
             if (
                 verdict_marking > 0
-                and verdict_type == "incorrect"
+                and verdict_type == Verdict.INCORRECT
                 and not self.section_key.startswith(BONUS_SECTION_PREFIX)
             ):
                 logger.warning(
@@ -342,6 +349,7 @@ class EvaluationConfig:
     def match_answer_for_question(self, current_score, question, marked_answer):
         answer_matcher = self.question_to_answer_matcher[question]
         question_verdict, delta = answer_matcher.get_verdict_marking(marked_answer)
+        self.update_verdict_mapping(question_verdict)
         self.conditionally_add_explanation(
             answer_matcher,
             delta,
@@ -358,6 +366,22 @@ class EvaluationConfig:
 
     def get_should_explain_scoring(self):
         return self.should_explain_scoring
+
+    def update_verdict_mapping(self, question_verdict):
+        for verdict in VERDICTS_IN_ORDER:
+            # using startswith to handle cases like Correct-A
+            if question_verdict.startswith(verdict):
+                self.verdict_mapping[verdict] += 1
+                return
+
+    def get_answers_summary_string(self):
+        answers_summary_string = " ".join(
+            [
+                f"{verdict.title()}: {self.verdict_mapping[verdict]}"
+                for verdict in VERDICTS_IN_ORDER
+            ]
+        )
+        return answers_summary_string
 
     def get_exclude_files(self):
         return self.exclude_files
@@ -446,6 +470,8 @@ class EvaluationConfig:
     # Then unfolding lower abstraction levels
     def reset_explanation_table(self):
         self.explanation_table = None
+
+        self.verdict_mapping = {verdict: 0 for verdict in VERDICTS_IN_ORDER}
         self.prepare_explanation_table()
 
     def prepare_explanation_table(self):
@@ -488,9 +514,11 @@ class EvaluationConfig:
                     str.title(question_verdict),
                     str(round(delta, 2)),
                     str(round(next_score, 2)),
-                    answer_matcher.get_section_explanation()
-                    if self.has_non_default_section
-                    else None,
+                    (
+                        answer_matcher.get_section_explanation()
+                        if self.has_non_default_section
+                        else None
+                    ),
                 ]
                 if item is not None
             ]
@@ -508,5 +536,6 @@ def evaluate_concatenated_response(concatenated_response, evaluation_config):
         current_score += delta
 
     evaluation_config.conditionally_print_explanation()
+    answers_summary_string = evaluation_config.get_answers_summary_string()
 
-    return current_score
+    return current_score, answers_summary_string
