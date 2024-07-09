@@ -23,16 +23,17 @@ from src.utils.parsing import get_concatenated_response, open_config_with_defaul
 
 from src.utils.file import Paths, setup_outputs_for_template
 
+from src.entry import check_and_move
+
 # Load processors
 STATS = Stats()
 
 
 def process_and_get_result(
+        template_id,
         file_data,
         file_name,
-        outputs_namespace,
 ):
-
     in_omr = cv2.imdecode(file_data, cv2.IMREAD_GRAYSCALE)
 
     logger.info("")
@@ -46,8 +47,13 @@ def process_and_get_result(
     local_config_path = curr_dir.joinpath(constants.CONFIG_FILENAME)
     tuning_config = open_config_with_defaults(local_config_path)
 
+    if template_id is None:
+        template_path = constants.TEMPLATE_FILENAME
+    else:
+        template_path = "templates/" + template_id + ".json"
+
     # Update local template (in current recursion stack)
-    local_template_path = curr_dir.joinpath(constants.TEMPLATE_FILENAME)
+    local_template_path = curr_dir.joinpath(template_path)
     template = Template(
         local_template_path,
         tuning_config,
@@ -107,39 +113,3 @@ def process_and_get_result(
     omr_response = get_concatenated_response(response_dict, template)
 
     return omr_response
-
-
-def check_and_move(error_code, file_path, filepath2):
-    # TODO: fix file movement into error/multimarked/invalid etc again
-    STATS.files_not_moved += 1
-    return True
-
-
-def print_stats(start_time, files_counter, tuning_config):
-    time_checking = max(1, round(time() - start_time, 2))
-    log = logger.info
-    log("")
-    log(f"{'Total file(s) moved':<27}: {STATS.files_moved}")
-    log(f"{'Total file(s) not moved':<27}: {STATS.files_not_moved}")
-    log("--------------------------------")
-    log(
-        f"{'Total file(s) processed':<27}: {files_counter} ({'Sum Tallied!' if files_counter == (STATS.files_moved + STATS.files_not_moved) else 'Not Tallying!'})"
-    )
-
-    if tuning_config.outputs.show_image_level <= 0:
-        log(
-            f"\nFinished Checking {files_counter} file(s) in {round(time_checking, 1)} seconds i.e. ~{round(time_checking / 60, 1)} minute(s)."
-        )
-        log(
-            f"{'OMR Processing Rate':<27}:\t ~ {round(time_checking / files_counter, 2)} seconds/OMR"
-        )
-        log(
-            f"{'OMR Processing Speed':<27}:\t ~ {round((files_counter * 60) / time_checking, 2)} OMRs/minute"
-        )
-    else:
-        log(f"\n{'Total script time':<27}: {time_checking} seconds")
-
-    if tuning_config.outputs.show_image_level <= 1:
-        log(
-            "\nTip: To see some awesome visuals, open config.json and increase 'show_image_level'"
-        )
